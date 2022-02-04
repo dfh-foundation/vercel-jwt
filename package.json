@@ -49,7 +49,7 @@
     "reset": "Delete all untracked files and reset the repo to the last commit"
   },
   "engines": {
-    "node": ">=8.9"
+    "node": ">=14.17"
   },
   "dependencies": {
     "@types/jsonwebtoken": "^8.5.1",
