@@ -32,7 +32,7 @@
     "doc:html": "typedoc src/ --exclude **/*.spec.ts --target ES6 --mode file --out build/docs",
     "doc:json": "typedoc src/ --exclude **/*.spec.ts --target ES6 --mode file --json build/docs/typedoc.json",
     "clean": "rimraf build",
-    "prepare": "run-s clean test cov:report",
+    "prepare": "run-s clean test cov:report && husky install",
     "semantic-release": "semantic-release"
   },
   "scripts-info": {
@@ -79,8 +79,8 @@
     "eslint-plugin-prefer-arrow": "^1.2.1",
     "eslint-plugin-prettier": "^3.1.4",
     "gh-pages": "^3.1.0",
-    "husky": "^4.2.5",
-    "lint-staged": "^10.2.11",
+    "husky": "^7.0.4",
+    "lint-staged": "^12.3.3",
     "npm-run-all": "^4.1.5",
     "nyc": "^14.1.1",
     "open-cli": "^6.0.1",
@@ -107,15 +107,11 @@
       "**/*.spec.js"
     ]
   },
-  "husky": {
-    "hooks": {
-      "pre-commit": "lint-staged"
-    }
-  },
   "lint-staged": {
-    "src/**/*.ts": [
+    "*.{js,jsx,ts,tsx}": [
       "eslint --cache --fix",
       "prettier --write"
-    ]
+    ],
+    "*.{graphql,json,md}": "prettier --write"
   }
 }

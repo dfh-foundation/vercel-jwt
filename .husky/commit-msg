@@ -1,0 +1,7 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# prevent execution in CI environment
+[ -n "$CI" ] && exit 0
+
+npx commitlint --edit "$1"
