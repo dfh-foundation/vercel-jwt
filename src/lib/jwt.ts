@@ -25,12 +25,12 @@ export interface SecretCallback {
 export interface IsRevokedCallback {
   (req: VercelRequest, payload: any): Promise<boolean>;
 }
-export interface NowJwtOptions extends jwt.VerifyOptions {
+export interface VercelJwtOptions extends jwt.VerifyOptions {
   secret: Secret | SecretCallback | SecretCallbackLong;
   credentialsRequired?: boolean;
   isRevoked?: IsRevokedCallback;
 }
-export interface NowJwtRequestHandler {
+export interface VercelJwtRequestHandler {
   (req: VercelRequest, res: VercelResponse): Promise<
     Record<string, any> | undefined
   >;
@@ -86,7 +86,7 @@ export const decodeToken = (token: string): Record<string, any> => {
  * @param options
  * @return authentication function for requests
  */
-export default (options: NowJwtOptions): NowJwtRequestHandler => {
+export default (options: VercelJwtOptions): VercelJwtRequestHandler => {
   if (!options || !options.secret) throw new Error('secret should be set');
 
   if (!options.algorithms) throw new Error('algorithms should be set');

@@ -13,7 +13,7 @@ const handleSigningKeyError = (err: Error): Secret => {
   throw err;
 };
 
-export interface NowJwtSecretOptions {
+export interface VercelJwtSecretOptions {
   jwksUri: string;
   rateLimit?: boolean;
   cache?: boolean;
@@ -27,7 +27,7 @@ export interface NowJwtSecretOptions {
   handleSigningKeyError?: (err: Error) => Secret;
 }
 
-export interface NowJwtSecretProvider {
+export interface VercelJwtSecretProvider {
   (req: VercelRequest, header: any, payload: any): Promise<Secret>;
 }
 
@@ -36,10 +36,10 @@ export interface NowJwtSecretProvider {
  * @param options
  * @return secret provider function
  */
-export default (options: NowJwtSecretOptions): NowJwtSecretProvider => {
+export default (options: VercelJwtSecretOptions): VercelJwtSecretProvider => {
   if (options === null || options === undefined) {
     throw new jwksRsa.ArgumentError(
-      'An options object must be provided when initializing nowJwtSecret'
+      'An options object must be provided when initializing vercelJwtSecret'
     );
   }
 

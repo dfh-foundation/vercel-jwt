@@ -1,5 +1,9 @@
 import test from 'ava';
-import { default as nowJwt, getTokenFromHeaders, NowJwtOptions } from './jwt';
+import {
+  default as vercelJwt,
+  getTokenFromHeaders,
+  VercelJwtOptions,
+} from './jwt';
 import * as sinon from 'ts-sinon';
 import type { VercelRequest } from '@vercel/node/dist';
 import { UnauthorizedError } from './errors';
@@ -45,10 +49,10 @@ test('getTokenFromHeaders() should return token', (t) => {
 });
 
 test('default should return request handler', (t) => {
-  const options: NowJwtOptions = {
+  const options: VercelJwtOptions = {
     secret: 'static_secret',
     algorithms: ['RS256'],
   };
-  const result = nowJwt(options);
+  const result = vercelJwt(options);
   t.is(typeof result, 'function');
 });
