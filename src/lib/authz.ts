@@ -1,11 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ForbiddenError } from './errors';
 
-export interface NowJwtAuthzOptions {
+export interface VercelJwtAuthzOptions {
   customScopeKey?: string;
   checkAllScopes?: boolean;
 }
-export interface NowJwtAuthzRequestHandler {
+export interface VercelJwtAuthzRequestHandler {
   (
     req: VercelRequest,
     res: VercelResponse,
@@ -33,8 +33,8 @@ export const getScopesFromUser = (
  */
 export default (
   expectedScopes: string[],
-  options?: NowJwtAuthzOptions
-): NowJwtAuthzRequestHandler => {
+  options?: VercelJwtAuthzOptions
+): VercelJwtAuthzRequestHandler => {
   if (!Array.isArray(expectedScopes)) {
     throw new Error(
       'Parameter expectedScopes must be an array of strings representing the scopes for the endpoint(s)'
