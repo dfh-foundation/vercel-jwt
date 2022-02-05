@@ -27,14 +27,22 @@ export type ErrorCode =
   | 'credentials_bad_format'
   | 'credentials_required'
 
+export class ArgumentError extends Error {
+  name = 'ArgumentError'
+  constructor(message: string) {
+    super(message)
+    Error.captureStackTrace(this, this.constructor)
+  }
+}
+
 export class UnauthorizedError extends Error {
+  name = 'UnauthorizedError'
   code: ErrorCode
   status: number
   inner: ErrorLike
 
   constructor(code: ErrorCode, error: ErrorLike) {
     super(error.message)
-    this.name = 'UnauthorizedError'
     Error.captureStackTrace(this, this.constructor)
     this.code = code
     this.status = 401

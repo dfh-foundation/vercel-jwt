@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node/dist'
 import * as jwt from 'jsonwebtoken'
 import { promisify } from 'util'
-import { UnauthorizedError } from './errors'
+import { ArgumentError, UnauthorizedError } from './errors'
 
 type AsyncVerifyFunction = (
   token: string,
@@ -14,19 +14,11 @@ const jwtVerify = promisify(jwt.verify as AsyncVerifyFunction)
 
 const DEFAULT_REVOKED_FUNCTION: IsRevokedCallback = async () => false
 
-export type Secret = string | Buffer
-
-export interface SecretCallbackLong {
-  (req: VercelRequest, header: unknown, payload: unknown): Promise<Secret>
-}
-export interface SecretCallback {
-  (req: VercelRequest, payload: unknown): Promise<Secret>
-}
 export interface IsRevokedCallback {
   (req: VercelRequest, payload: unknown): Promise<boolean>
 }
 export interface VercelJwtOptions extends Omit<jwt.VerifyOptions, 'complete'> {
-  secret: Secret | SecretCallback | SecretCallbackLong
+  secret: jwt.Secret | jwt.GetPublicKeyOrSecret
   credentialsRequired?: boolean
   isRevoked?: IsRevokedCallback
 }
@@ -38,17 +30,6 @@ export interface JwtPayloadAndToken {
 export interface VercelJwtRequestHandler {
   (req: VercelRequest, res: VercelResponse): Promise<JwtPayloadAndToken | undefined>
 }
-
-function isSecretCallback(
-  secretCallback: SecretCallback | SecretCallbackLong
-): secretCallback is SecretCallback {
-  return secretCallback.length === 2
-}
-
-const wrapStaticSecretInCallback =
-  (secret: Secret): SecretCallback =>
-  async () =>
-    secret
 
 export const getTokenFromHeaders = (
   req: VercelRequest,
@@ -76,41 +57,30 @@ export const getTokenFromHeaders = (
   return
 }
 
-export const decodeToken = (token: string): jwt.Jwt => {
-  let result
-  try {
-    result = jwt.decode(token, { complete: true })
-  } catch (err) {
-    throw new UnauthorizedError('invalid_token', err instanceof Error ? err : { message: `${err}` })
-  }
-  if (result == null) {
-    throw new UnauthorizedError('invalid_token', {
-      message: 'decoded token must be an object',
-    })
-  }
-  return result
-}
-
 /**
  * Build function to authenticate request using JWT token in request
  * @param options
  * @return authentication function for requests
  */
 export default (options: VercelJwtOptions): VercelJwtRequestHandler => {
-  if (!options || !options.secret) throw new Error('secret should be set')
+  if (options == null) {
+    throw new ArgumentError('An options object must be provided when initializing vercelJwt')
+  }
+  const {
+    credentialsRequired: credentialsRequiredProp,
+    isRevoked: isRevokedProp,
+    secret,
+    ...verifyOptions
+  } = options
+  if (!secret) throw new ArgumentError('secret should be set')
 
-  if (!options.algorithms) throw new Error('algorithms should be set')
-  if (!Array.isArray(options.algorithms)) throw new Error('algorithms must be an array')
+  if (!verifyOptions.algorithms) throw new ArgumentError('algorithms should be set')
+  if (!Array.isArray(verifyOptions.algorithms))
+    throw new ArgumentError('algorithms must be an array')
 
-  const secretCallback: SecretCallback | SecretCallbackLong =
-    typeof options.secret === 'function'
-      ? options.secret
-      : wrapStaticSecretInCallback(options.secret)
+  const isRevokedCallback = isRevokedProp ?? DEFAULT_REVOKED_FUNCTION
 
-  const isRevokedCallback = options.isRevoked || DEFAULT_REVOKED_FUNCTION
-
-  const credentialsRequired =
-    typeof options.credentialsRequired === 'undefined' ? true : options.credentialsRequired
+  const credentialsRequired = credentialsRequiredProp ?? true
 
   return async (
     req: VercelRequest,
@@ -139,16 +109,8 @@ export default (options: VercelJwtOptions): VercelJwtRequestHandler => {
       }
     }
 
-    const getSecret = (): Promise<Secret> => {
-      const decodedToken = decodeToken(token)
-      if (isSecretCallback(secretCallback)) {
-        return secretCallback(req, decodedToken.payload)
-      }
-      return secretCallback(req, decodedToken.header, decodedToken.payload)
-    }
-
-    const verifyToken = (secret: Secret): Promise<jwt.JwtPayload> =>
-      jwtVerify(token, secret, { ...options, complete: false })
+    const verifyToken = (): Promise<jwt.JwtPayload> =>
+      jwtVerify(token, secret, { ...verifyOptions, complete: false })
         .catch((err): never => {
           console.error('Token validation failed', err)
           throw new UnauthorizedError(
@@ -175,8 +137,7 @@ export default (options: VercelJwtOptions): VercelJwtRequestHandler => {
         return payload
       })
 
-    return getSecret()
-      .then(verifyToken)
+    return verifyToken()
       .then(checkRevoked)
       .then((payload) => ({
         payload,
