@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { JwtPayload } from 'jsonwebtoken'
 import { ForbiddenError } from './errors'
 
 export interface VercelJwtAuthzOptions {
@@ -6,13 +7,10 @@ export interface VercelJwtAuthzOptions {
   checkAllScopes?: boolean
 }
 export interface VercelJwtAuthzRequestHandler {
-  (req: VercelRequest, res: VercelResponse, user?: Record<string, any>): Promise<void>
+  (req: VercelRequest, res: VercelResponse, payload?: JwtPayload): Promise<void>
 }
 
-export const getScopesFromUser = (
-  user: Record<string, any>,
-  scopeKey: string
-): string[] | undefined => {
+export const getScopesFromUser = (user: JwtPayload, scopeKey: string): string[] | undefined => {
   if (typeof user[scopeKey] === 'string') {
     return user[scopeKey].split(' ')
   } else if (Array.isArray(user[scopeKey])) {
@@ -37,22 +35,18 @@ export default (
     )
   }
 
-  return async (
-    _req: VercelRequest,
-    _res: VercelResponse,
-    user?: Record<string, any>
-  ): Promise<void> => {
+  return async (_req: VercelRequest, _res: VercelResponse, payload?: JwtPayload): Promise<void> => {
     if (expectedScopes.length === 0) {
       return
     }
 
     const scopeKey = (options && options.customScopeKey) || 'scope'
 
-    if (!user) {
-      throw new ForbiddenError('User token missing', expectedScopes)
+    if (!payload) {
+      throw new ForbiddenError('JWT payload missing', expectedScopes)
     }
 
-    const userScopes = getScopesFromUser(user, scopeKey)
+    const userScopes = getScopesFromUser(payload, scopeKey)
     if (!userScopes) {
       throw new ForbiddenError('Insufficient scope', expectedScopes)
     }

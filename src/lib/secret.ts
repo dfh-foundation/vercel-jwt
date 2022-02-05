@@ -1,5 +1,6 @@
 import type { VercelRequest } from '@vercel/node/dist'
 import jwksRsa from 'jwks-rsa'
+import { JwtHeader, JwtPayload } from 'jsonwebtoken'
 import { promisify } from 'util'
 import { Secret } from './jwt'
 
@@ -28,7 +29,7 @@ export interface VercelJwtSecretOptions {
 }
 
 export interface VercelJwtSecretProvider {
-  (req: VercelRequest, header: any, payload: any): Promise<Secret>
+  (req: VercelRequest, header: JwtHeader, payload: JwtPayload | string): Promise<Secret>
 }
 
 /**
@@ -37,7 +38,7 @@ export interface VercelJwtSecretProvider {
  * @return secret provider function
  */
 export default (options: VercelJwtSecretOptions): VercelJwtSecretProvider => {
-  if (options === null || options === undefined) {
+  if (options == null) {
     throw new jwksRsa.ArgumentError(
       'An options object must be provided when initializing vercelJwtSecret'
     )
