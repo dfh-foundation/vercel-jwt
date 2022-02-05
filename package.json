@@ -27,9 +27,6 @@
     "cov:html": "nyc report --reporter=html",
     "cov:check": "nyc report && nyc check-coverage --lines 100 --functions 100 --branches 100",
     "cov:report": "nyc report",
-    "doc": "run-s doc:html && open-cli build/docs/index.html",
-    "doc:html": "typedoc src/ --exclude **/*.spec.ts --target ES6 --mode file --out build/docs",
-    "doc:json": "typedoc src/ --exclude **/*.spec.ts --target ES6 --mode file --json build/docs/typedoc.json",
     "clean": "rimraf build",
     "prepare": "run-s clean test cov:report && husky install",
     "semantic-release": "semantic-release"
@@ -40,8 +37,6 @@
     "test": "Lint and unit test the project",
     "watch": "Watch and rebuild the project on save, then rerun relevant tests",
     "cov": "Rebuild, run tests, then create and open the coverage report",
-    "doc": "Generate HTML API documentation and open it in a browser",
-    "doc:json": "Generate API documentation in typedoc JSON format",
     "version": "Bump package.json version, update CHANGELOG.md, tag release",
     "reset": "Delete all untracked files and reset the repo to the last commit"
   },
@@ -59,8 +54,6 @@
   },
   "devDependencies": {
     "@ava/typescript": "^3.0.1",
-    "@bitjson/npm-scripts-info": "^1.0.0",
-    "@bitjson/typedoc": "^0.15.0-0",
     "@commitlint/cli": "^16.1.0",
     "@commitlint/config-conventional": "^16.0.0",
     "@istanbuljs/nyc-config-typescript": "^1.0.2",
