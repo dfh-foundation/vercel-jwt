@@ -10,7 +10,10 @@ export interface VercelJwtAuthzRequestHandler {
   (req: VercelRequest, res: VercelResponse, payload?: JwtPayload): Promise<void>
 }
 
-export const getScopesFromUser = (user: JwtPayload, scopeKey: string): string[] | undefined => {
+export const getScopesFromJwtPayload = (
+  user: JwtPayload,
+  scopeKey = 'scope'
+): string[] | undefined => {
   if (typeof user[scopeKey] === 'string') {
     return user[scopeKey].split(' ')
   } else if (Array.isArray(user[scopeKey])) {
@@ -40,13 +43,11 @@ export default (
       return
     }
 
-    const scopeKey = (options && options.customScopeKey) || 'scope'
-
     if (!payload) {
       throw new ForbiddenError('JWT payload missing', expectedScopes)
     }
 
-    const userScopes = getScopesFromUser(payload, scopeKey)
+    const userScopes = getScopesFromJwtPayload(payload, options?.customScopeKey)
     if (!userScopes) {
       throw new ForbiddenError('Insufficient scope', expectedScopes)
     }

@@ -1,6 +1,6 @@
 import vercelJwt from './lib/jwt'
-import vercelJwtAuthz from './lib/authz'
+import vercelJwtAuthz, { getScopesFromJwtPayload } from './lib/authz'
 import vercelJwtSecret from './lib/secret'
 
 export { ForbiddenError, UnauthorizedError, sendForbiddenError } from './lib/errors'
-export { vercelJwt, vercelJwtAuthz, vercelJwtSecret }
+export { getScopesFromJwtPayload, vercelJwt, vercelJwtAuthz, vercelJwtSecret }
