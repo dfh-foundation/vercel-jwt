@@ -1,3 +1,25 @@
+# [2.0.0](https://github.com/dfh-foundation/vercel-jwt/compare/v1.1.2...v2.0.0) (2022-02-07)
+
+
+### Bug Fixes
+
+* bump prettier to 2.5.1 and format project ([0d20596](https://github.com/dfh-foundation/vercel-jwt/commit/0d205968190c58e2b0aae2196794e6f152ea0837))
+* use callback secret provider to avoid decoding JWT twice ([7019510](https://github.com/dfh-foundation/vercel-jwt/commit/7019510b25d87a7cebbe070102d07344f9eb9edd))
+
+
+### Features
+
+* export getScopesFromJwtPayload ([c79d9e8](https://github.com/dfh-foundation/vercel-jwt/commit/c79d9e8b23678a962e82e2666781d669b5d480d1))
+* replace Now branding with Vercel ([0ba75e2](https://github.com/dfh-foundation/vercel-jwt/commit/0ba75e26f9ad26ad3efaaf3d9e9611d036a6f539))
+* support resolving user token from cookie ([50842af](https://github.com/dfh-foundation/vercel-jwt/commit/50842af0bdd345ae7e949897f4472a3909d96b1f))
+* use updated jsonwebtoken types and return token and payload from handler ([8566583](https://github.com/dfh-foundation/vercel-jwt/commit/8566583f8c1a804081ecd0b6242d64ce8d4e774b))
+
+
+### BREAKING CHANGES
+
+* JWT handler now returns token and validated payload in object
+* exported functions and types now begin with vercel/Vercel
+
 # Changelog
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
