@@ -1,34 +1,32 @@
-import type { VercelRequest } from '@vercel/node/dist';
-import jwksRsa from 'jwks-rsa';
-import { promisify } from 'util';
-import { Secret } from './jwt';
+import jwksRsa from 'jwks-rsa'
+import { GetPublicKeyOrSecret, Secret, SigningKeyCallback } from 'jsonwebtoken'
+import { ArgumentError } from './errors'
 
-const handleSigningKeyError = (err: Error): Secret => {
+const handleSigningKeyError = (
+  err: Error,
+  callback: (err: unknown, secret?: Secret) => void
+): void => {
   // If we didn't find a match, can't provide a key.
   if (err && err.name === 'SigningKeyNotFoundError') {
-    return '';
+    return callback(null, '')
   }
 
   // If an error occurred like rate limiting or HTTP issue, we'll bubble up the error.
-  throw err;
-};
-
-export interface VercelJwtSecretOptions {
-  jwksUri: string;
-  rateLimit?: boolean;
-  cache?: boolean;
-  cacheMaxEntries?: number;
-  cacheMaxAge?: number;
-  jwksRequestsPerMinute?: number;
-  proxy?: string;
-  strictSsl?: boolean;
-  requestHeaders?: jwksRsa.Headers;
-  timeout?: number;
-  handleSigningKeyError?: (err: Error) => Secret;
+  return callback(err)
 }
 
-export interface VercelJwtSecretProvider {
-  (req: VercelRequest, header: any, payload: any): Promise<Secret>;
+export interface VercelJwtSecretOptions {
+  jwksUri: string
+  rateLimit?: boolean
+  cache?: boolean
+  cacheMaxEntries?: number
+  cacheMaxAge?: number
+  jwksRequestsPerMinute?: number
+  proxy?: string
+  strictSsl?: boolean
+  requestHeaders?: jwksRsa.Headers
+  timeout?: number
+  handleSigningKeyError?: (err: Error, callback: (err: unknown, secret?: Secret) => void) => void
 }
 
 /**
@@ -36,27 +34,25 @@ export interface VercelJwtSecretProvider {
  * @param options
  * @return secret provider function
  */
-export default (options: VercelJwtSecretOptions): VercelJwtSecretProvider => {
-  if (options === null || options === undefined) {
-    throw new jwksRsa.ArgumentError(
-      'An options object must be provided when initializing vercelJwtSecret'
-    );
+export default (options: VercelJwtSecretOptions): GetPublicKeyOrSecret => {
+  if (options == null) {
+    throw new ArgumentError('An options object must be provided when initializing vercelJwtSecret')
   }
 
-  const client = jwksRsa(options);
-  const onError = options.handleSigningKeyError || handleSigningKeyError;
-  const getSigningKey = promisify(client.getSigningKey);
+  const client = jwksRsa(options)
+  const onError = options.handleSigningKeyError || handleSigningKeyError
 
-  return (_req, header, _payload): Promise<Secret> => {
+  return (header, callback: SigningKeyCallback): void => {
     // Only RS256 is supported.
     if (!header || header.alg !== 'RS256') {
-      return Promise.reject(
-        `RS256 algorithm required - header: ${JSON.stringify(header)}`
-      );
+      return callback(new Error(`RS256 algorithm required - header: ${JSON.stringify(header)}`))
     }
 
-    return getSigningKey(header.kid)
-      .then((key) => key.getPublicKey())
-      .catch(onError);
-  };
-};
+    return client.getSigningKey(header.kid, (err, signingKey) => {
+      if (err) {
+        return onError(err, callback)
+      }
+      return callback(null, signingKey.getPublicKey())
+    })
+  }
+}

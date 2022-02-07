@@ -1,85 +1,92 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node/dist';
-import * as jwt from 'jsonwebtoken';
-import { UnauthorizedError } from './errors';
-import { promisify } from 'util';
+import type { VercelRequest, VercelResponse } from '@vercel/node/dist'
+import * as jwt from 'jsonwebtoken'
+import { promisify } from 'util'
+import { ArgumentError, ErrorCode, UnauthorizedError } from './errors'
 
 type AsyncVerifyFunction = (
   token: string,
   secretOrPublicKey: jwt.Secret | jwt.GetPublicKeyOrSecret,
-  options?: jwt.VerifyOptions,
-  callback?: jwt.VerifyCallback
-) => void;
+  options: jwt.VerifyOptions & { complete: false },
+  callback?: jwt.VerifyCallback<jwt.JwtPayload | string>
+) => void
 
-const jwtVerify = promisify(jwt.verify as AsyncVerifyFunction);
+const jwtVerify = promisify(jwt.verify as AsyncVerifyFunction)
 
-const DEFAULT_REVOKED_FUNCTION = async () => false;
+const DEFAULT_REVOKED_FUNCTION: IsRevokedCallback = async () => false
 
-export type Secret = string | Buffer;
-
-export interface SecretCallbackLong {
-  (req: VercelRequest, header: any, payload: any): Promise<Secret>;
-}
-export interface SecretCallback {
-  (req: VercelRequest, payload: any): Promise<Secret>;
-}
 export interface IsRevokedCallback {
-  (req: VercelRequest, payload: any): Promise<boolean>;
+  (req: VercelRequest, payload: unknown): Promise<boolean>
 }
-export interface VercelJwtOptions extends jwt.VerifyOptions {
-  secret: Secret | SecretCallback | SecretCallbackLong;
-  credentialsRequired?: boolean;
-  isRevoked?: IsRevokedCallback;
+export interface VercelJwtOptions extends Omit<jwt.VerifyOptions, 'complete'> {
+  authorizationCookie?: string
+  credentialsRequired?: boolean
+  isRevoked?: IsRevokedCallback
+  secret: jwt.Secret | jwt.GetPublicKeyOrSecret
 }
+export interface JwtPayloadAndToken {
+  payload: jwt.JwtPayload
+  token: string
+}
+
 export interface VercelJwtRequestHandler {
-  (req: VercelRequest, res: VercelResponse): Promise<
-    Record<string, any> | undefined
-  >;
+  (req: VercelRequest, res?: VercelResponse): Promise<JwtPayloadAndToken | undefined>
 }
 
-const wrapStaticSecretInCallback = (
-  secret: Secret
-): SecretCallback => async () => secret;
+export type GetTokenResult =
+  | { success: true; value: string | undefined }
+  | { success: false; code: ErrorCode; message: string }
 
-export const getTokenFromHeaders = (
-  req: VercelRequest,
-  credentialsRequired: boolean
-): string | undefined => {
-  if (req.headers && req.headers.authorization) {
-    const parts = req.headers.authorization.split(' ');
-    if (parts.length !== 2) {
-      throw new UnauthorizedError('credentials_bad_format', {
-        message: 'Format is Authorization: Bearer [token]',
-      });
+export const getTokenFromHeaders = (req: VercelRequest): GetTokenResult => {
+  const authorizationHeader = req.headers?.authorization
+  if (!authorizationHeader) {
+    return { success: true, value: undefined }
+  }
+  const parts = authorizationHeader.split(' ')
+  if (parts.length !== 2) {
+    return {
+      success: false,
+      code: 'credentials_bad_format',
+      message: 'Format is Authorization: Bearer [token]',
     }
+  }
 
-    const [scheme, credentials] = parts;
-    if (/^Bearer$/i.test(scheme)) {
-      return credentials;
-    } else {
-      if (credentialsRequired) {
-        throw new UnauthorizedError('credentials_bad_scheme', {
-          message: 'Format is Authorization: Bearer [token]',
-        });
+  const [scheme, credentials] = parts
+  if (!/^Bearer$/i.test(scheme)) {
+    return {
+      success: false,
+      code: 'credentials_bad_scheme',
+      message: 'Format is Authorization: Bearer [token]',
+    }
+  }
+  return { success: true, value: credentials }
+}
+
+export const getTokenFromCookieNamed =
+  (authorizationCookie: string) =>
+  (req: VercelRequest): GetTokenResult => {
+    const cookieHeader = req.headers.cookie
+    if (!cookieHeader || !authorizationCookie) {
+      return { success: true, value: undefined }
+    }
+    const cookiePrefix = `${authorizationCookie}=`
+
+    const matchingCookie = cookieHeader
+      .split(/\s*;\s*/)
+      .find((cookie) => cookie.startsWith(cookiePrefix))
+    if (!matchingCookie) {
+      return { success: true, value: undefined }
+    }
+    const cookieValue = matchingCookie.substring(cookiePrefix.length)
+    try {
+      return { success: true, value: decodeURIComponent(cookieValue) }
+    } catch (e) {
+      return {
+        success: false,
+        code: 'credentials_bad_format',
+        message: e instanceof Error ? e.message : 'Unable to decode cookie',
       }
     }
   }
-  return;
-};
-
-export const decodeToken = (token: string): Record<string, any> => {
-  let result;
-  try {
-    result = jwt.decode(token, { complete: true }) || {};
-  } catch (err) {
-    throw new UnauthorizedError('invalid_token', err);
-  }
-  if (typeof result !== 'object') {
-    throw new UnauthorizedError('invalid_token', {
-      message: 'decoded token must be an object',
-    });
-  }
-  return result;
-};
 
 /**
  * Build function to authenticate request using JWT token in request
@@ -87,88 +94,116 @@ export const decodeToken = (token: string): Record<string, any> => {
  * @return authentication function for requests
  */
 export default (options: VercelJwtOptions): VercelJwtRequestHandler => {
-  if (!options || !options.secret) throw new Error('secret should be set');
+  if (options == null) {
+    throw new ArgumentError('An options object must be provided when initializing vercelJwt')
+  }
+  const {
+    credentialsRequired: credentialsRequiredProp,
+    isRevoked: isRevokedProp,
+    secret,
+    ...verifyOptions
+  } = options
+  if (!secret) throw new ArgumentError('secret should be set')
 
-  if (!options.algorithms) throw new Error('algorithms should be set');
-  if (!Array.isArray(options.algorithms))
-    throw new Error('algorithms must be an array');
+  if (!verifyOptions.algorithms) throw new ArgumentError('algorithms should be set')
+  if (!Array.isArray(verifyOptions.algorithms))
+    throw new ArgumentError('algorithms must be an array')
 
-  const secretCallback =
-    typeof options.secret === 'function'
-      ? options.secret
-      : wrapStaticSecretInCallback(options.secret);
+  const isRevokedCallback = isRevokedProp ?? DEFAULT_REVOKED_FUNCTION
 
-  const isRevokedCallback = options.isRevoked || DEFAULT_REVOKED_FUNCTION;
+  const credentialsRequired = credentialsRequiredProp ?? true
 
-  const credentialsRequired =
-    typeof options.credentialsRequired === 'undefined'
-      ? true
-      : options.credentialsRequired;
+  const getTokenFromCookie = options.authorizationCookie
+    ? getTokenFromCookieNamed(options.authorizationCookie)
+    : undefined
 
   return async (
     req: VercelRequest,
-    _res: VercelResponse
-  ): Promise<Record<string, any> | undefined> => {
-    if (
-      req.method === 'OPTIONS' &&
-      req.headers['access-control-request-headers']
-    ) {
-      const hasAuthInAccessControl = !!~req.headers[
-        'access-control-request-headers'
-      ]
+    _res?: VercelResponse
+  ): Promise<JwtPayloadAndToken | undefined> => {
+    if (req.method === 'OPTIONS' && req.headers['access-control-request-headers']) {
+      const hasAuthInAccessControl = !!~req.headers['access-control-request-headers']
         .split(',')
         .map((header) => header.trim())
-        .indexOf('authorization');
+        .indexOf('authorization')
 
       if (hasAuthInAccessControl) {
-        return;
+        return
       }
     }
 
-    const token = getTokenFromHeaders(req, credentialsRequired);
+    const tokenResult = getTokenFromHeaders(req)
+
+    if (!tokenResult.success) {
+      if (credentialsRequired) {
+        throw new UnauthorizedError(tokenResult.code, {
+          message: tokenResult.message,
+        })
+      } else {
+        return
+      }
+    }
+
+    const tokenFromHeader = tokenResult.value
+
+    // attempt fetching token from cookie if configured and not found in header
+    const tokenFromCookieResult =
+      !tokenFromHeader && getTokenFromCookie ? getTokenFromCookie(req) : undefined
+    if (tokenFromCookieResult && !tokenFromCookieResult.success) {
+      if (credentialsRequired) {
+        throw new UnauthorizedError(tokenFromCookieResult.code, {
+          message: tokenFromCookieResult.message,
+        })
+      } else {
+        return
+      }
+    }
+
+    const token = tokenFromCookieResult ? tokenFromCookieResult.value : tokenFromHeader
 
     if (!token) {
       if (credentialsRequired) {
         throw new UnauthorizedError('credentials_required', {
           message: 'No authorization token was found',
-        });
+        })
       } else {
-        return;
+        return
       }
     }
 
-    const decodedToken = decodeToken(token);
+    const verifyToken = (): Promise<jwt.JwtPayload> =>
+      jwtVerify(token, secret, { ...verifyOptions, complete: false })
+        .catch((err): never => {
+          console.error('Token validation failed', err)
+          throw new UnauthorizedError(
+            'invalid_token',
+            err instanceof Error ? err : { message: `${err}` }
+          )
+        })
+        .then((payload): jwt.JwtPayload => {
+          if (typeof payload === 'string' || payload == null) {
+            throw new UnauthorizedError('invalid_token', {
+              message: 'Decoded payload must be an object',
+            })
+          }
+          return payload
+        })
 
-    const getSecret = (): Promise<Secret> => {
-      const arity = secretCallback.length;
-      if (arity === 3) {
-        return (secretCallback as SecretCallbackLong)(
-          req,
-          decodedToken.header,
-          decodedToken.payload
-        );
-      }
-      return (secretCallback as SecretCallback)(req, decodedToken.payload);
-    };
-
-    const verifyToken = (secret: Secret): Promise<any> =>
-      jwtVerify(token, secret, options).catch((err: Error) => {
-        console.error('Token validation failed', err);
-        throw new UnauthorizedError('invalid_token', err);
-      });
-
-    const checkRevoked = (
-      decoded: Record<string, any>
-    ): Promise<Record<string, any>> =>
-      isRevokedCallback(req, decodedToken.payload).then((revoked) => {
+    const checkRevoked = (payload: jwt.JwtPayload): Promise<jwt.JwtPayload> =>
+      isRevokedCallback(req, payload).then((revoked) => {
         if (revoked) {
           throw new UnauthorizedError('revoked_token', {
             message: 'The token has been revoked.',
-          });
+          })
         }
-        return decoded;
-      });
+        return payload
+      })
 
-    return getSecret().then(verifyToken).then(checkRevoked);
-  };
-};
+    return verifyToken()
+      .then(checkRevoked)
+      .then((payload) => ({
+        payload,
+        token,
+      }))
+  }
+}
