@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node/dist'
 import * as jwt from 'jsonwebtoken'
 import { promisify } from 'util'
-import { ArgumentError, UnauthorizedError } from './errors'
+import { ArgumentError, ErrorCode, UnauthorizedError } from './errors'
 
 type AsyncVerifyFunction = (
   token: string,
@@ -18,9 +18,10 @@ export interface IsRevokedCallback {
   (req: VercelRequest, payload: unknown): Promise<boolean>
 }
 export interface VercelJwtOptions extends Omit<jwt.VerifyOptions, 'complete'> {
-  secret: jwt.Secret | jwt.GetPublicKeyOrSecret
+  authorizationCookie?: string
   credentialsRequired?: boolean
   isRevoked?: IsRevokedCallback
+  secret: jwt.Secret | jwt.GetPublicKeyOrSecret
 }
 export interface JwtPayloadAndToken {
   payload: jwt.JwtPayload
@@ -28,34 +29,64 @@ export interface JwtPayloadAndToken {
 }
 
 export interface VercelJwtRequestHandler {
-  (req: VercelRequest, res: VercelResponse): Promise<JwtPayloadAndToken | undefined>
+  (req: VercelRequest, res?: VercelResponse): Promise<JwtPayloadAndToken | undefined>
 }
 
-export const getTokenFromHeaders = (
-  req: VercelRequest,
-  credentialsRequired: boolean
-): string | undefined => {
-  if (req.headers && req.headers.authorization) {
-    const parts = req.headers.authorization.split(' ')
-    if (parts.length !== 2) {
-      throw new UnauthorizedError('credentials_bad_format', {
-        message: 'Format is Authorization: Bearer [token]',
-      })
-    }
+export type GetTokenResult =
+  | { success: true; value: string | undefined }
+  | { success: false; code: ErrorCode; message: string }
 
-    const [scheme, credentials] = parts
-    if (/^Bearer$/i.test(scheme)) {
-      return credentials
-    } else {
-      if (credentialsRequired) {
-        throw new UnauthorizedError('credentials_bad_scheme', {
-          message: 'Format is Authorization: Bearer [token]',
-        })
+export const getTokenFromHeaders = (req: VercelRequest): GetTokenResult => {
+  const authorizationHeader = req.headers?.authorization
+  if (!authorizationHeader) {
+    return { success: true, value: undefined }
+  }
+  const parts = authorizationHeader.split(' ')
+  if (parts.length !== 2) {
+    return {
+      success: false,
+      code: 'credentials_bad_format',
+      message: 'Format is Authorization: Bearer [token]',
+    }
+  }
+
+  const [scheme, credentials] = parts
+  if (!/^Bearer$/i.test(scheme)) {
+    return {
+      success: false,
+      code: 'credentials_bad_scheme',
+      message: 'Format is Authorization: Bearer [token]',
+    }
+  }
+  return { success: true, value: credentials }
+}
+
+export const getTokenFromCookieNamed =
+  (authorizationCookie: string) =>
+  (req: VercelRequest): GetTokenResult => {
+    const cookieHeader = req.headers.cookie
+    if (!cookieHeader || !authorizationCookie) {
+      return { success: true, value: undefined }
+    }
+    const cookiePrefix = `${authorizationCookie}=`
+
+    const matchingCookie = cookieHeader
+      .split(/\s*;\s*/)
+      .find((cookie) => cookie.startsWith(cookiePrefix))
+    if (!matchingCookie) {
+      return { success: true, value: undefined }
+    }
+    const cookieValue = matchingCookie.substring(cookiePrefix.length)
+    try {
+      return { success: true, value: decodeURIComponent(cookieValue) }
+    } catch (e) {
+      return {
+        success: false,
+        code: 'credentials_bad_format',
+        message: e instanceof Error ? e.message : 'Unable to decode cookie',
       }
     }
   }
-  return
-}
 
 /**
  * Build function to authenticate request using JWT token in request
@@ -82,9 +113,13 @@ export default (options: VercelJwtOptions): VercelJwtRequestHandler => {
 
   const credentialsRequired = credentialsRequiredProp ?? true
 
+  const getTokenFromCookie = options.authorizationCookie
+    ? getTokenFromCookieNamed(options.authorizationCookie)
+    : undefined
+
   return async (
     req: VercelRequest,
-    _res: VercelResponse
+    _res?: VercelResponse
   ): Promise<JwtPayloadAndToken | undefined> => {
     if (req.method === 'OPTIONS' && req.headers['access-control-request-headers']) {
       const hasAuthInAccessControl = !!~req.headers['access-control-request-headers']
@@ -97,7 +132,34 @@ export default (options: VercelJwtOptions): VercelJwtRequestHandler => {
       }
     }
 
-    const token = getTokenFromHeaders(req, credentialsRequired)
+    const tokenResult = getTokenFromHeaders(req)
+
+    if (!tokenResult.success) {
+      if (credentialsRequired) {
+        throw new UnauthorizedError(tokenResult.code, {
+          message: tokenResult.message,
+        })
+      } else {
+        return
+      }
+    }
+
+    const tokenFromHeader = tokenResult.value
+
+    // attempt fetching token from cookie if configured and not found in header
+    const tokenFromCookieResult =
+      !tokenFromHeader && getTokenFromCookie ? getTokenFromCookie(req) : undefined
+    if (tokenFromCookieResult && !tokenFromCookieResult.success) {
+      if (credentialsRequired) {
+        throw new UnauthorizedError(tokenFromCookieResult.code, {
+          message: tokenFromCookieResult.message,
+        })
+      } else {
+        return
+      }
+    }
+
+    const token = tokenFromCookieResult ? tokenFromCookieResult.value : tokenFromHeader
 
     if (!token) {
       if (credentialsRequired) {
